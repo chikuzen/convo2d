@@ -334,6 +334,7 @@ create_convo2d(const VSMap *in, VSMap *out, void *user_data, VSCore *core,
             ch->proc_convolution = proc_5x5_16bit;
         }
     }
+    ch->m[4] = 1;
     for (int i = 0; i < num; i++) {
         int element = (int)vsapi->propGetInt(in, "matrix", i, NULL);
         ch->m[i] = element;
