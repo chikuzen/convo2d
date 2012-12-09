@@ -4,8 +4,7 @@ convo2d - Spatial convolution filter for VapourSynth
 
 General spatial convolution (3x3 or 5x5) filter.::
 
-.. function::   Convolution(clip clip[, int[] matrix, float bias, float divisor, int[] planes])
-   :module: convo2d
+    convo2d.Convolution(clip clip[, int[] matrix, float bias, float divisor, int[] planes])
 
 Parameters:
 -----------
