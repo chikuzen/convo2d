@@ -15,7 +15,7 @@ Parameters:
     divisor: divides the output of the convolution (calculated before adding bias). 0.0 means sum of the elements of the matrix or 1.0(when the sum is zero).
         default is 0.0.
     planes: planes which processes.
-        default is all planes of the clip.
+        default is 0(GRAY) or [0, 1, 2](YUV/RGB).
 
 Examples:
 ---------
