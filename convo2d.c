@@ -33,6 +33,8 @@
 #define snprintf _snprintf
 #endif
 
+#define CONVO2D_VERSION "0.1.0"
+
 typedef struct convo2d_handle convo2d_t;
 
 struct convo2d_handle {
@@ -86,7 +88,7 @@ proc_3x3_8bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
                 *(r0 + x0) * m00 + *(r0 + x1) * m01 + *(r0 + x2) * m02 +
                 *(r1 + x0) * m10 + *(r1 + x1) * m11 + *(r1 + x2) * m12 +
                 *(r2 + x0) * m20 + *(r2 + x1) * m21 + *(r2 + x2) * m22;
-            dstp[x] = (uint8_t)clamp(value / ch->div + ch->bias + 0.5, 0xFF);
+            dstp[x] = (uint8_t)clamp(value / ch->div + ch->bias, 0xFF);
         }
 
         srcp += stride;
@@ -129,7 +131,7 @@ proc_5x5_8bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
                 *(r2 + x0) * m20 + *(r2 + x1) * m21 + *(r2 + x2) * m22 + *(r2 + x3) * m23 + *(r2 + x4) * m24 +
                 *(r3 + x0) * m30 + *(r3 + x1) * m31 + *(r3 + x2) * m32 + *(r3 + x3) * m33 + *(r3 + x4) * m34 +
                 *(r4 + x0) * m40 + *(r4 + x1) * m41 + *(r4 + x2) * m42 + *(r4 + x3) * m43 + *(r4 + x4) * m44;
-                dstp[x] = (uint8_t)clamp(value / ch->div + ch->bias + 0.5, 0xFF);
+                dstp[x] = (uint8_t)clamp(value / ch->div + ch->bias, 0xFF);
         }
 
         srcp += stride;
@@ -164,7 +166,7 @@ proc_3x3_16bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
                 *(r0 + x0) * m00 + *(r0 + x1) * m01 + *(r0 + x2) * m02 +
                 *(r1 + x0) * m10 + *(r1 + x1) * m11 + *(r1 + x2) * m12 +
                 *(r2 + x0) * m20 + *(r2 + x1) * m21 + *(r2 + x2) * m22;
-            dstp[x] = clamp(value / ch->div + ch->bias + 0.5, ch->max);
+            dstp[x] = clamp(value / ch->div + ch->bias, ch->max);
         }
 
         srcp += stride;
@@ -207,7 +209,7 @@ proc_5x5_16bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
                 *(r2 + x0) * m20 + *(r2 + x1) * m21 + *(r2 + x2) * m22 + *(r2 + x3) * m23 + *(r2 + x4) * m24 +
                 *(r3 + x0) * m30 + *(r3 + x1) * m31 + *(r3 + x2) * m32 + *(r3 + x3) * m33 + *(r3 + x4) * m34 +
                 *(r4 + x0) * m40 + *(r4 + x1) * m41 + *(r4 + x2) * m42 + *(r4 + x3) * m43 + *(r4 + x4) * m44;
-            dstp[x] = clamp(value / ch->div + ch->bias + 0.5, ch->max);
+            dstp[x] = clamp(value / ch->div + ch->bias, ch->max);
         }
 
         srcp += stride;
@@ -349,6 +351,7 @@ create_convo2d(const VSMap *in, VSMap *out, void *user_data, VSCore *core,
     if (err) {
         ch->bias = 0.0;
     }
+    ch->bias += 0.5;
 
     double div = vsapi->propGetFloat(in, "divisor", 0, &err);
     if (!err && div != 0.0) {
@@ -368,10 +371,10 @@ VS_EXTERNAL_API(void) VapourSynthPluginInit(
     VSConfigPlugin f_config, VSRegisterFunction f_register, VSPlugin *plugin)
 {
     f_config("chikuzen.does.not.have.his.own.domain.convo2d", "convo2d",
-             "Spatial convolution filter for VapourSynth",
+             "Spatial convolution filter for VapourSynth v" CONVO2D_VERSION,
              VAPOURSYNTH_API_VERSION, 1, plugin);
     f_register("Convolution",
                "clip:clip;matrix:int[]:opt;bias:float:opt;divisor:float:opt;"
-               "planes:int[]:opt",
+               "planes:int[]:opt;",
                create_convo2d, NULL, plugin);
 }
