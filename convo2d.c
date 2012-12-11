@@ -33,7 +33,7 @@
 #define snprintf _snprintf
 #endif
 
-#define CONVO2D_VERSION "0.1.0"
+#define CONVO2D_VERSION "0.1.1"
 
 typedef struct convo2d_handle convo2d_t;
 
@@ -62,81 +62,60 @@ static uint16_t clamp(double val, uint16_t max)
 }
 
 
+#define CONVOLUTION_3x3(X0, X1, X2) (\
+    (*(r0 + (X0)) * m00) + (*(r0 + (X1)) * m01) + (*(r0 + (X2)) * m02) + \
+    (*(r1 + (X0)) * m10) + (*(r1 + (X1)) * m11) + (*(r1 + (X2)) * m12) + \
+    (*(r2 + (X0)) * m20) + (*(r2 + (X1)) * m21) + (*(r2 + (X2)) * m22))
+
+#define WRITE_DSTP_3x3(X0, X1, X2, T) \
+{\
+    int64_t value = CONVOLUTION_3x3(X0, X1, X2);\
+    dstp[(X1)] = (T)clamp(value / ch->div + ch->bias, ch->max);\
+}
+
+#define PROC_3x3(T) \
+{\
+    WRITE_DSTP_3x3(0, 0, 1, T); \
+    for (int x = 1; x < w; x++) { \
+        int xl = x - 1, xr = x + 1; \
+        WRITE_DSTP_3x3(xl, x, xr, T); \
+    } \
+    WRITE_DSTP_3x3(w - 1, w, w, T); \
+    r1 += stride; \
+    dstp += stride; \
+}
+
 static void VS_CC
 proc_3x3_8bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
               const VSAPI *vsapi)
 {
-    const uint8_t *srcp = vsapi->getReadPtr(src, plane);
-    int width = vsapi->getFrameWidth(src, plane);
-    int height = vsapi->getFrameHeight(src, plane);
+    int w = vsapi->getFrameWidth(src, plane) - 1;
+    int h = vsapi->getFrameHeight(src, plane) - 1;
+    if (w < 2 || h < 2) {
+        return;
+    }
     int stride = vsapi->getStride(src, plane);
     uint8_t *dstp = vsapi->getWritePtr(dst, plane);
     int m00 = ch->m[0], m01 = ch->m[1], m02 = ch->m[2],
         m10 = ch->m[3], m11 = ch->m[4], m12 = ch->m[5],
         m20 = ch->m[6], m21 = ch->m[7], m22 = ch->m[8];
 
-    for (int y = 0; y < height; y++) {
-        const uint8_t *r0 = srcp - (y > 0) * stride;
-        const uint8_t *r1 = srcp;
-        const uint8_t *r2 = srcp + (y < height - 1) * stride;
+    /* top */
+    const uint8_t *r0 = vsapi->getReadPtr(src, plane);
+    const uint8_t *r1 = r0;
+    const uint8_t *r2 = r1 + stride;
+    PROC_3x3(uint8_t);
 
-        for (int x = 0; x < width; x++) {
-            size_t x0 = x - (x > 0);
-            size_t x1 = x;
-            size_t x2 = x + (x < width - 1);
-            int64_t value =
-                *(r0 + x0) * m00 + *(r0 + x1) * m01 + *(r0 + x2) * m02 +
-                *(r1 + x0) * m10 + *(r1 + x1) * m11 + *(r1 + x2) * m12 +
-                *(r2 + x0) * m20 + *(r2 + x1) * m21 + *(r2 + x2) * m22;
-            dstp[x] = (uint8_t)clamp(value / ch->div + ch->bias, 0xFF);
-        }
-
-        srcp += stride;
-        dstp += stride;
+    /* center */
+    for (int y = 1; y < h; y++) {
+        r0 = r1 - stride;
+        r2 = r1 + stride;
+        PROC_3x3(uint8_t);
     }
-}
 
-
-static void VS_CC
-proc_5x5_8bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
-              const VSAPI *vsapi)
-{
-    const uint8_t *srcp = vsapi->getReadPtr(src, plane);
-    int width = vsapi->getFrameWidth(src, plane);
-    int height = vsapi->getFrameHeight(src, plane);
-    int stride = vsapi->getStride(src, plane);
-    uint8_t *dstp = vsapi->getWritePtr(dst, plane);
-    int m00 = ch->m[ 0], m01 = ch->m[ 1], m02 = ch->m[ 2], m03 = ch->m[ 3], m04 = ch->m[ 4],
-        m10 = ch->m[ 5], m11 = ch->m[ 6], m12 = ch->m[ 7], m13 = ch->m[ 8], m14 = ch->m[ 9],
-        m20 = ch->m[10], m21 = ch->m[11], m22 = ch->m[12], m23 = ch->m[13], m24 = ch->m[14],
-        m30 = ch->m[15], m31 = ch->m[16], m32 = ch->m[17], m33 = ch->m[18], m34 = ch->m[19],
-        m40 = ch->m[20], m41 = ch->m[21], m42 = ch->m[22], m43 = ch->m[23], m44 = ch->m[24];
-
-    for (int y = 0; y < height; y++) {
-        const uint8_t *r0 = srcp - ((y > 2) + (y > 1)) * stride;
-        const uint8_t *r1 = srcp - (y > 1) * stride;
-        const uint8_t *r2 = srcp;
-        const uint8_t *r3 = srcp + (y < height - 1) * stride;
-        const uint8_t *r4 = srcp + ((y < height - 1) + (y < height - 2)) * stride;
-
-        for (int x = 0; x < width; x++) {
-            size_t x0 = x - ((x > 2) + (x > 1));
-            size_t x1 = x - (x > 1);
-            size_t x2 = x;
-            size_t x3 = x + (x < width - 1);
-            size_t x4 = x + ((x < width - 2) + (x < width - 1));
-            int64_t value =
-                *(r0 + x0) * m00 + *(r0 + x1) * m01 + *(r0 + x2) * m02 + *(r0 + x3) * m03 + *(r0 + x4) * m04 +
-                *(r1 + x0) * m10 + *(r1 + x1) * m11 + *(r1 + x2) * m12 + *(r1 + x3) * m13 + *(r1 + x4) * m14 +
-                *(r2 + x0) * m20 + *(r2 + x1) * m21 + *(r2 + x2) * m22 + *(r2 + x3) * m23 + *(r2 + x4) * m24 +
-                *(r3 + x0) * m30 + *(r3 + x1) * m31 + *(r3 + x2) * m32 + *(r3 + x3) * m33 + *(r3 + x4) * m34 +
-                *(r4 + x0) * m40 + *(r4 + x1) * m41 + *(r4 + x2) * m42 + *(r4 + x3) * m43 + *(r4 + x4) * m44;
-                dstp[x] = (uint8_t)clamp(value / ch->div + ch->bias, 0xFF);
-        }
-
-        srcp += stride;
-        dstp += stride;
-    }
+    /* bottom */
+    r0 = r1 - stride;
+    PROC_3x3(uint8_t);
 }
 
 
@@ -144,34 +123,115 @@ static void VS_CC
 proc_3x3_16bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
                const VSAPI *vsapi)
 {
-    const uint16_t *srcp = (uint16_t *)vsapi->getReadPtr(src, plane);
-    int width = vsapi->getFrameWidth(src, plane);
-    int height = vsapi->getFrameHeight(src, plane);
+    int w = vsapi->getFrameWidth(src, plane) - 1;
+    int h = vsapi->getFrameHeight(src, plane) - 1;
+    if (w < 2 || h < 2) {
+        return;
+    }
     int stride = vsapi->getStride(src, plane) / 2;
     uint16_t *dstp = (uint16_t *)vsapi->getWritePtr(dst, plane);
     int m00 = ch->m[0], m01 = ch->m[1], m02 = ch->m[2],
         m10 = ch->m[3], m11 = ch->m[4], m12 = ch->m[5],
         m20 = ch->m[6], m21 = ch->m[7], m22 = ch->m[8];
 
-    for (int y = 0; y < height; y++) {
-        const uint16_t *r0 = srcp - (y > 0) * stride;
-        const uint16_t *r1 = srcp;
-        const uint16_t *r2 = srcp + (y < height - 1) * stride;
+    /* top */
+    const uint16_t *r0 = (uint16_t *)vsapi->getReadPtr(src, plane);
+    const uint16_t *r1 = r0;
+    const uint16_t *r2 = r1 + stride;
+    PROC_3x3(uint16_t);
 
-        for (int x = 0; x < width; x++) {
-            size_t x0 = x - (x > 0);
-            size_t x1 = x;
-            size_t x2 = x + (x < width - 1);
-            int64_t value =
-                *(r0 + x0) * m00 + *(r0 + x1) * m01 + *(r0 + x2) * m02 +
-                *(r1 + x0) * m10 + *(r1 + x1) * m11 + *(r1 + x2) * m12 +
-                *(r2 + x0) * m20 + *(r2 + x1) * m21 + *(r2 + x2) * m22;
-            dstp[x] = clamp(value / ch->div + ch->bias, ch->max);
-        }
-
-        srcp += stride;
-        dstp += stride;
+    /* center */
+    for (int y = 1; y < h; y++) {
+        r0 = r1 - stride;
+        r2 = r1 + stride;
+        PROC_3x3(uint16_t);
     }
+
+    /* bottom */
+    r0 = r1 - stride;
+    PROC_3x3(uint16_t);
+}
+#undef PROC_3x3
+#undef WRITE_DSTP_3x3
+#undef CONVOLUTION_3x3
+
+
+#define CONVOLUTION_5x5(X0, X1, X2, X3, X4) (\
+    (*(r0 + (X0)) * m00) + (*(r0 + (X1)) * m01) + (*(r0 + (X2)) * m02) + (*(r0 + (X3)) * m03) + (*(r0 + (X4)) * m04) +\
+    (*(r1 + (X0)) * m10) + (*(r1 + (X1)) * m11) + (*(r1 + (X2)) * m12) + (*(r1 + (X3)) * m13) + (*(r1 + (X4)) * m14) +\
+    (*(r2 + (X0)) * m20) + (*(r2 + (X1)) * m21) + (*(r2 + (X2)) * m22) + (*(r2 + (X3)) * m23) + (*(r2 + (X4)) * m24) +\
+    (*(r3 + (X0)) * m30) + (*(r3 + (X1)) * m31) + (*(r3 + (X2)) * m32) + (*(r3 + (X3)) * m33) + (*(r3 + (X4)) * m34) +\
+    (*(r4 + (X0)) * m40) + (*(r4 + (X1)) * m41) + (*(r4 + (X2)) * m42) + (*(r4 + (X3)) * m43) + (*(r4 + (X4)) * m44))
+
+#define WRITE_DSTP_5x5(X0, X1, X2, X3, X4, T) \
+{\
+    int64_t value = CONVOLUTION_5x5(X0, X1, X2, X3, X4); \
+    dstp[(X2)] = (T)clamp(value / ch->div + ch->bias, ch->max); \
+}
+
+#define PROC_5x5(T) \
+{\
+    WRITE_DSTP_5x5(0, 0, 0, 1, 2, T); \
+    WRITE_DSTP_5x5(0, 0, 1, 2, 3, T); \
+    for (int x = 2; x < w; x++) { \
+        int x0 = x - 2, x1 = x - 1, x3 = x + 1, x4 = x + 2; \
+        WRITE_DSTP_5x5(x0, x1, x, x3, x4, T); \
+    } \
+    WRITE_DSTP_5x5(w - 2, w - 1, w, w + 1, w + 1, T); \
+    WRITE_DSTP_5x5(w - 1, w, w + 1, w + 1, w + 1, T); \
+    r2 += stride; \
+    dstp += stride; \
+}
+
+static void VS_CC
+proc_5x5_8bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
+              const VSAPI *vsapi)
+{
+    int w = vsapi->getFrameWidth(src, plane) - 2;
+    int h = vsapi->getFrameHeight(src, plane) - 2;
+    if (w < 3 || h < 3) {
+        return;
+    }
+    int stride = vsapi->getStride(src, plane);
+    uint8_t *dstp = vsapi->getWritePtr(dst, plane);
+    int m00 = ch->m[ 0], m01 = ch->m[ 1], m02 = ch->m[ 2], m03 = ch->m[ 3], m04 = ch->m[ 4],
+        m10 = ch->m[ 5], m11 = ch->m[ 6], m12 = ch->m[ 7], m13 = ch->m[ 8], m14 = ch->m[ 9],
+        m20 = ch->m[10], m21 = ch->m[11], m22 = ch->m[12], m23 = ch->m[13], m24 = ch->m[14],
+        m30 = ch->m[15], m31 = ch->m[16], m32 = ch->m[17], m33 = ch->m[18], m34 = ch->m[19],
+        m40 = ch->m[20], m41 = ch->m[21], m42 = ch->m[22], m43 = ch->m[23], m44 = ch->m[24];
+
+    /* top */
+    const uint8_t *r0 = vsapi->getReadPtr(src, plane);
+    const uint8_t *r1 = r0;
+    const uint8_t *r2 = r0;
+    const uint8_t *r3 = r2 + stride;
+    const uint8_t *r4 = r3 + stride;
+    PROC_5x5(uint8_t);
+
+    /* top + 1 */
+    r3 += stride;
+    r4 += stride;
+    PROC_5x5(uint8_t);
+
+    /* center */
+    for (int y = 2; y < h; y++) {
+        r1 = r2 - stride;
+        r0 = r1 - stride;
+        r3 = r2 + stride;
+        r4 = r3 + stride;
+        PROC_5x5(uint8_t);
+    }
+
+    /* bottom - 1 */
+    r1 = r2 - stride;
+    r0 = r1 - stride;
+    r3 = r2 + stride;
+    PROC_5x5(uint8_t);
+
+    /* bottom */
+    r1 = r2 - stride;
+    r0 = r1 - stride;
+    PROC_5x5(uint8_t);
 }
 
 
@@ -179,9 +239,11 @@ static void VS_CC
 proc_5x5_16bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
                const VSAPI *vsapi)
 {
-    const uint16_t *srcp = (uint16_t *)vsapi->getReadPtr(src, plane);
-    int width = vsapi->getFrameWidth(src, plane);
-    int height = vsapi->getFrameHeight(src, plane);
+    int w = vsapi->getFrameWidth(src, plane) - 2;
+    int h = vsapi->getFrameHeight(src, plane) - 2;
+    if (w < 3 || h < 3) {
+        return;
+    }
     int stride = vsapi->getStride(src, plane) / 2;
     uint16_t *dstp = (uint16_t *)vsapi->getWritePtr(dst, plane);
     int m00 = ch->m[ 0], m01 = ch->m[ 1], m02 = ch->m[ 2], m03 = ch->m[ 3], m04 = ch->m[ 4],
@@ -190,32 +252,42 @@ proc_5x5_16bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
         m30 = ch->m[15], m31 = ch->m[16], m32 = ch->m[17], m33 = ch->m[18], m34 = ch->m[19],
         m40 = ch->m[20], m41 = ch->m[21], m42 = ch->m[22], m43 = ch->m[23], m44 = ch->m[24];
 
-    for (int y = 0; y < height; y++) {
-        const uint16_t *r0 = srcp - ((y > 2) + (y > 1)) * stride;
-        const uint16_t *r1 = srcp - (y > 1) * stride;
-        const uint16_t *r2 = srcp;
-        const uint16_t *r3 = srcp + (y < height - 1) * stride;
-        const uint16_t *r4 = srcp + ((y < height - 1) + (y < height - 2)) * stride;
+    /* top */
+    const uint16_t *r0 = (uint16_t *)vsapi->getReadPtr(src, plane);
+    const uint16_t *r1 = r0;
+    const uint16_t *r2 = r0;
+    const uint16_t *r3 = r2 + stride;
+    const uint16_t *r4 = r3 + stride;
+    PROC_5x5(uint16_t);
 
-        for (int x = 0; x < width; x++) {
-            size_t x0 = x - ((x > 2) + (x > 1));
-            size_t x1 = x - (x > 1);
-            size_t x2 = x;
-            size_t x3 = x + (x < width - 1);
-            size_t x4 = x + ((x < width - 2) + (x < width - 1));
-            int64_t value =
-                *(r0 + x0) * m00 + *(r0 + x1) * m01 + *(r0 + x2) * m02 + *(r0 + x3) * m03 + *(r0 + x4) * m04 +
-                *(r1 + x0) * m10 + *(r1 + x1) * m11 + *(r1 + x2) * m12 + *(r1 + x3) * m13 + *(r1 + x4) * m14 +
-                *(r2 + x0) * m20 + *(r2 + x1) * m21 + *(r2 + x2) * m22 + *(r2 + x3) * m23 + *(r2 + x4) * m24 +
-                *(r3 + x0) * m30 + *(r3 + x1) * m31 + *(r3 + x2) * m32 + *(r3 + x3) * m33 + *(r3 + x4) * m34 +
-                *(r4 + x0) * m40 + *(r4 + x1) * m41 + *(r4 + x2) * m42 + *(r4 + x3) * m43 + *(r4 + x4) * m44;
-            dstp[x] = clamp(value / ch->div + ch->bias, ch->max);
-        }
+    /* top + 1 */
+    r3 += stride;
+    r4 += stride;
+    PROC_5x5(uint16_t);
 
-        srcp += stride;
-        dstp += stride;
+    /* center */
+    for (int y = 2; y < h; y++) {
+        r1 = r2 - stride;
+        r0 = r1 - stride;
+        r3 = r2 + stride;
+        r4 = r3 + stride;
+        PROC_5x5(uint16_t);
     }
+
+    /* bottom - 1 */
+    r1 = r2 - stride;
+    r0 = r1 - stride;
+    r3 = r2 + stride;
+    PROC_5x5(uint16_t);
+
+    /* bottom */
+    r1 = r2 - stride;
+    r0 = r1 - stride;
+    PROC_5x5(uint16_t);
 }
+#undef PROC_5x5
+#undef WRITE_DSTP_5x5
+#undef CONVOLUTION_5x5
 
 
 static const VSFrameRef * VS_CC
