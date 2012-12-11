@@ -324,6 +324,7 @@ convo2d_get_frame(int n, int activation_reason, void **instance_data,
         ch->proc_convolution(ch, plane, src, dst, vsapi);
     }
 
+    vsapi->freeFrame(src);
     return dst;
 }
 
