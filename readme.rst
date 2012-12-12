@@ -57,6 +57,10 @@ Examples:
     >>> edge_v = core.convo2d.Convolution(clip, vertical, divisor=8)
     >>> clip = core.std.Lut2([edge_h, edge_v], get_lut(16), 0)
 
+Note:
+-----
+    If input clip has some frames which sample types are float, those will not be processed.
+
 How to compile:
 ---------------
     on unix system(include mingw/cygwin), type as follows::

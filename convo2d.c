@@ -25,7 +25,6 @@
 #include <string.h>
 #include <stdarg.h>
 #include <stdint.h>
-#include <math.h>
 #include "VapourSynth.h"
 
 #ifdef _MSC_VER
@@ -33,7 +32,7 @@
 #define snprintf _snprintf
 #endif
 
-#define CONVO2D_VERSION "0.1.1"
+#define CONVO2D_VERSION "0.1.2"
 
 typedef struct convo2d_handle convo2d_t;
 
@@ -41,10 +40,9 @@ struct convo2d_handle {
     VSNodeRef *node;
     const VSVideoInfo *vi;
     int m[25];
-    uint16_t max;
     void (VS_CC *proc_convolution)(convo2d_t *ch, int plane,
                                    const VSFrameRef *src, VSFrameRef *dst,
-                                   const VSAPI *vsapi);
+                                   const VSAPI *vsapi, uint16_t max);
     double div;
     double bias;
     int planes[3];
@@ -70,7 +68,7 @@ static uint16_t clamp(double val, uint16_t max)
 #define WRITE_DSTP_3x3(X0, X1, X2, T) \
 {\
     int64_t value = CONVOLUTION_3x3(X0, X1, X2);\
-    dstp[(X1)] = (T)clamp(value / ch->div + ch->bias, ch->max);\
+    dstp[(X1)] = (T)clamp(value / ch->div + ch->bias, max);\
 }
 
 #define PROC_3x3(T) \
@@ -87,7 +85,7 @@ static uint16_t clamp(double val, uint16_t max)
 
 static void VS_CC
 proc_3x3_8bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
-              const VSAPI *vsapi)
+              const VSAPI *vsapi, uint16_t max)
 {
     int w = vsapi->getFrameWidth(src, plane) - 1;
     int h = vsapi->getFrameHeight(src, plane) - 1;
@@ -121,7 +119,7 @@ proc_3x3_8bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
 
 static void VS_CC
 proc_3x3_16bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
-               const VSAPI *vsapi)
+               const VSAPI *vsapi, uint16_t max)
 {
     int w = vsapi->getFrameWidth(src, plane) - 1;
     int h = vsapi->getFrameHeight(src, plane) - 1;
@@ -166,7 +164,7 @@ proc_3x3_16bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
 #define WRITE_DSTP_5x5(X0, X1, X2, X3, X4, T) \
 {\
     int64_t value = CONVOLUTION_5x5(X0, X1, X2, X3, X4); \
-    dstp[(X2)] = (T)clamp(value / ch->div + ch->bias, ch->max); \
+    dstp[(X2)] = (T)clamp(value / ch->div + ch->bias, max); \
 }
 
 #define PROC_5x5(T) \
@@ -185,7 +183,7 @@ proc_3x3_16bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
 
 static void VS_CC
 proc_5x5_8bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
-              const VSAPI *vsapi)
+              const VSAPI *vsapi, uint16_t max)
 {
     int w = vsapi->getFrameWidth(src, plane) - 2;
     int h = vsapi->getFrameHeight(src, plane) - 2;
@@ -237,7 +235,7 @@ proc_5x5_8bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
 
 static void VS_CC
 proc_5x5_16bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
-               const VSAPI *vsapi)
+               const VSAPI *vsapi, uint16_t max)
 {
     int w = vsapi->getFrameWidth(src, plane) - 2;
     int h = vsapi->getFrameHeight(src, plane) - 2;
@@ -308,6 +306,10 @@ convo2d_get_frame(int n, int activation_reason, void **instance_data,
 
     const VSFrameRef *src = vsapi->getFrameFilter(n, ch->node, frame_ctx);
     const VSFormat *fi = vsapi->getFrameFormat(src);
+    if (fi->sampleType != stInteger) {
+        return src;
+    }
+
     const int pl[] = {0, 1, 2};
     const VSFrameRef *fr[] = {ch->planes[0] ? NULL : src,
                               ch->planes[1] ? NULL : src,
@@ -316,12 +318,13 @@ convo2d_get_frame(int n, int activation_reason, void **instance_data,
                                             vsapi->getFrameHeight(src, 0),
                                             fr, pl, src, core);
 
+    uint16_t max = (1 << fi->bitsPerSample) - 1;
     for (int plane = 0; plane < fi->numPlanes; plane++) {
         if (fr[plane]) {
             continue;
         }
 
-        ch->proc_convolution(ch, plane, src, dst, vsapi);
+        ch->proc_convolution(ch, plane, src, dst, vsapi, max);
     }
 
     vsapi->freeFrame(src);
@@ -430,8 +433,6 @@ create_convo2d(const VSMap *in, VSMap *out, void *user_data, VSCore *core,
     if (!err && div != 0.0) {
         ch->div = div;
     }
-
-    ch->max = (uint16_t)(pow(2.0, ch->vi->format->bitsPerSample) - 1);
 
     vsapi->createFilter(in, out, "Convolution", init_convo2d,
                         convo2d_get_frame, close_convo2d, fmParallel,
