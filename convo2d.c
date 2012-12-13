@@ -305,8 +305,8 @@ static proc_convolution get_proc_func(mtype_t m, int bytes_per_sample)
     } table[] = {
         { MAKE_KEY(MATRIX_TYPE_3X3,  1), proc_3x3_8bit  },
         { MAKE_KEY(MATRIX_TYPE_3X3,  2), proc_3x3_16bit },
-        { MAKE_KEY(MATRIX_TYPE_5X5, 1), proc_5x5_8bit  },
-        { MAKE_KEY(MATRIX_TYPE_5X5, 2), proc_5x5_16bit },
+        { MAKE_KEY(MATRIX_TYPE_5X5, 1),  proc_5x5_8bit  },
+        { MAKE_KEY(MATRIX_TYPE_5X5, 2),  proc_5x5_16bit },
         { current_frame, NULL }
     };
     

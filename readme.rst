@@ -38,7 +38,7 @@ Examples:
                   0, 0, 0]
     >>> clip = core.convo2d.Convolution(clip, matrix, planes=[1, 2])
 
-    - edge detection with Sobel operator:
+    - Edge detection with Sobel operator:
     >>> import math
     >>> def binalyze(val, thresh):
     ...     return 236 if val > thresh else 16
