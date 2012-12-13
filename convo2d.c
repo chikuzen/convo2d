@@ -230,7 +230,7 @@ proc_5x5_16bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
 }
 
 
-#define MAKE_KEY(mtype, bytes) (((uint32_t)mtype << 16) || (uint32_t)bytes)
+#define MAKE_KEY(mtype, bytes) (((uint32_t)mtype << 16) | (uint32_t)bytes)
 
 static proc_convolution get_proc_func(mtype_t m, int bytes_per_sample)
 {
