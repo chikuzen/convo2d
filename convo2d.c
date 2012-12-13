@@ -35,14 +35,20 @@
 #define CONVO2D_VERSION "0.1.2"
 
 typedef struct convo2d_handle convo2d_t;
+typedef void (VS_CC *proc_convolution)(convo2d_t *ch, int plane,
+                                       const VSFrameRef *src, VSFrameRef *dst,
+                                       const VSAPI *vsapi, uint16_t max);
+
+typedef enum {
+    MATRIX_TYPE_3X3 = 0,
+    MATRIX_TYPE_5X5
+} mtype_t;
 
 struct convo2d_handle {
     VSNodeRef *node;
     const VSVideoInfo *vi;
     int m[25];
-    void (VS_CC *proc_convolution)(convo2d_t *ch, int plane,
-                                   const VSFrameRef *src, VSFrameRef *dst,
-                                   const VSAPI *vsapi, uint16_t max);
+    mtype_t mtype;
     double div;
     double bias;
     int planes[3];
@@ -288,6 +294,30 @@ proc_5x5_16bit(convo2d_t *ch, int plane, const VSFrameRef *src, VSFrameRef *dst,
 #undef CONVOLUTION_5x5
 
 
+#define MAKE_KEY(mtype, bytes) (((uint32_t)mtype << 16) || (uint32_t)bytes)
+
+static proc_convolution get_proc_func(mtype_t m, int bytes_per_sample)
+{
+    uint32_t current_frame = MAKE_KEY(m, bytes_per_sample);
+    const struct {
+        uint32_t key;
+        proc_convolution func;
+    } table[] = {
+        { MAKE_KEY(MATRIX_TYPE_3X3,  1), proc_3x3_8bit  },
+        { MAKE_KEY(MATRIX_TYPE_3X3,  2), proc_3x3_16bit },
+        { MAKE_KEY(MATRIX_TYPE_5X5, 1), proc_5x5_8bit  },
+        { MAKE_KEY(MATRIX_TYPE_5X5, 2), proc_5x5_16bit },
+        { current_frame, NULL }
+    };
+    
+    int i = 0;
+    while (table[i].key != current_frame) i++;
+
+    return table[i].func;
+}
+#undef MAKE_KEY
+
+
 static const VSFrameRef * VS_CC
 convo2d_get_frame(int n, int activation_reason, void **instance_data,
                   void **frame_data, VSFrameContext *frame_ctx,
@@ -318,13 +348,19 @@ convo2d_get_frame(int n, int activation_reason, void **instance_data,
                                             vsapi->getFrameHeight(src, 0),
                                             fr, pl, src, core);
 
+    proc_convolution proc_func = get_proc_func(ch->mtype, fi->bytesPerSample);
+    if (!proc_func) {
+        vsapi->freeFrame(src);
+        return dst;
+    }
     uint16_t max = (1 << fi->bitsPerSample) - 1;
+
     for (int plane = 0; plane < fi->numPlanes; plane++) {
         if (fr[plane]) {
             continue;
         }
 
-        ch->proc_convolution(ch, plane, src, dst, vsapi, max);
+        proc_func(ch, plane, src, dst, vsapi, max);
     }
 
     vsapi->freeFrame(src);
@@ -389,29 +425,21 @@ create_convo2d(const VSMap *in, VSMap *out, void *user_data, VSCore *core,
 
     int num = vsapi->propNumElements(in, "planes");
     if (num < 1) {
-        for (int i = 0; i < ch->vi->format->numPlanes; ch->planes[i++] = 1);
+        for (int i = 0; i < 3; ch->planes[i++] = 1);
     } else {
         for (int i = 0; i < num; i++) {
             int p = (int)vsapi->propGetInt(in, "planes", i, NULL);
-            RET_IF_ERROR(p < 0 || p >= ch->vi->format->numPlanes,
-                         "planes index out of range");
+            RET_IF_ERROR(p < 0 || p > 2, "planes index out of range");
             ch->planes[p] = 1;
         }
     }
 
     num = vsapi->propNumElements(in, "matrix");
     RET_IF_ERROR(num > 0 && num != 9 && num != 25, "invalid matrix");
-    if (num < 0 || num == 9) {
-        ch->proc_convolution = proc_3x3_8bit;
-        if (ch->vi->format->bytesPerSample == 2) {
-            ch->proc_convolution = proc_3x3_16bit;
-        }
-    } else {
-        ch->proc_convolution = proc_5x5_8bit;
-        if (ch->vi->format->bytesPerSample == 2) {
-            ch->proc_convolution = proc_5x5_16bit;
-        }
+    if (num == 25) {
+        ch->mtype = MATRIX_TYPE_5X5;
     }
+
     ch->m[4] = 1;
     for (int i = 0; i < num; i++) {
         int element = (int)vsapi->propGetInt(in, "matrix", i, NULL);
