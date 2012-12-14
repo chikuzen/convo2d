@@ -2,13 +2,13 @@
 convo2d - Spatial convolution filter for VapourSynth
 =====================================================
 
-General spatial convolution (3x3 or 5x5) filter.::
+General spatial convolution (1x3, 3x1, 1x5, 5x1, 3x3 or 5x5) filter.::
 
-    convo2d.Convolution(clip clip[, int[] matrix, float bias, float divisor, int[] planes])
+    convo2d.Convolution(clip clip[, int[] matrix, float bias, float divisor, int[] planes, data mode])
 
 Parameters:
 -----------
-    matrix: can be a 3x3 or 5x5 matrix with 9 or 25 integer numbers.
+    matrix: can be a 1x3, 3x1, 1x5, 5x1, 3x3 or 5x5 matrix with 3, 5, 9 or 25 integer numbers.
         default is [0, 0, 0, 0, 1, 0, 0, 0, 0].
     bias: additive bias to adjust the total output intensity.
         default is 0.0.
@@ -16,6 +16,7 @@ Parameters:
         default is 0.0.
     planes: planes which processes.
         default will process all planes.
+    mode: If this is set as 'v' when the number of elements of the matrix is 3 or 5, processing will be performed vertically.
 
 Examples:
 ---------
@@ -33,10 +34,10 @@ Examples:
     >>> blured = core.convo2d.Convolution(clip, matrix, planes=0)
 
     - Displacement UV(or GB) planes by quarter sample up:
-    >>> matrix = [0, 1, 0,
-                  0, 3, 0,
-                  0, 0, 0]
-    >>> clip = core.convo2d.Convolution(clip, matrix, planes=[1, 2])
+    >>> matrix = [1,
+                  3,
+                  0]
+    >>> clip = core.convo2d.Convolution(clip, matrix, planes=[1, 2], mode = 'v')
 
     - Edge detection with Sobel operator:
     >>> import math
@@ -51,10 +52,8 @@ Examples:
     ...     return lut
     ...
     >>> clip = core.resize.Point(clip, format=vs.GRAY8)
-    >>> horizontal = [1, 2, 1, 0, 0, 0, -1, -2, -1]
-    >>> vertical = [1, 0, -1, 2, 0, -2, 1, 0, -1]
-    >>> edge_h = core.convo2d.Convolution(clip, horizontal, divisor=8)
-    >>> edge_v = core.convo2d.Convolution(clip, vertical, divisor=8)
+    >>> edge_h = core.convo2d.Convolution(clip, [1, 2, 1, 0, 0, 0, -1, -2, -1], divisor=8)
+    >>> edge_v = core.convo2d.Convolution(clip, [1, 0, -1, 2, 0, -2, 1, 0, -1], divisor=8)
     >>> clip = core.std.Lut2([edge_h, edge_v], get_lut(16), 0)
 
 Note:
@@ -63,7 +62,7 @@ Note:
 
 How to compile:
 ---------------
-    on unix system(include mingw/cygwin), type as follows::
+    on unix like system(include mingw), type as follows::
 
     $ git clone git://github.com/chikuzen/convo2d.git
     $ cd ./convo2d
